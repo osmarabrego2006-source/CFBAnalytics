@@ -2,7 +2,7 @@ import sqlite3
 import pandas as pd
 from collections import defaultdict
 
-connection = sqlite3.connect("cfb_analytics.db")
+connection = sqlite3.connect("cfb_analytics.db", check_same_thread=False )
 
 def get_recruiting(target_year):
     df_recruiting = pd.read_sql_query("SELECT * FROM recruiting WHERE year = ?", \
@@ -30,6 +30,29 @@ def get_transfer_portal(target_year):
     df_transfer_portal = pd.read_sql_query("SELECT * FROM transfer_portal WHERE year = ?", \
                                 connection, params=[target_year])
     return df_transfer_portal
+
+LATEST_YEAR = 2025  # bump once next season's team_conference data is ingested
+
+def get_conferences():
+    df = pd.read_sql_query(
+        "SELECT DISTINCT conference FROM team_conference WHERE year = ?",
+        connection, params=[LATEST_YEAR]
+    )
+    return df["conference"].tolist()
+
+def get_teams_by_conference(conference):
+    df = pd.read_sql_query(
+        "SELECT team FROM team_conference WHERE conference = ? AND year = ?",
+        connection, params=[conference, LATEST_YEAR]
+    )
+    return df["team"].tolist()
+
+def get_logo(team):
+    df = pd.read_sql_query(
+        "SELECT logo_url FROM logos WHERE team = ?",
+        connection, params=[team]
+    )
+    return df["logo_url"].iloc[0] if not df.empty else None
 
 def get_points(target_team, target_year, df_recruiting):
     match = df_recruiting[(df_recruiting["team"] == target_team)& (df_recruiting["year"] == target_year)]
@@ -72,66 +95,52 @@ def calculate_matrix_sos(df_record, df_games):
     record_lookup = {}
     for _, row in df_record.iterrows():
         record_lookup[(int(row['year']), row['team'])] = (int(row['wins']), int(row['losses']))
-    
     sos_records = []
-    
     for year in df_games['year'].unique():
         df_year_games = df_games[df_games['year'] == year]
-        
         team_opponents = {}
         for _, game in df_year_games.iterrows():
             home, away = game['home_team'], game['away_team']
             team_opponents.setdefault(home, []).append(away)
             team_opponents.setdefault(away, []).append(home)
-
         for team, opponents in team_opponents.items():
-            opponent_win_percentages = []
-            
+            opponent_win_percentages = []  
             for opp in opponents:
                 opp_record = record_lookup.get((year, opp), (0, 0))
                 opp_wins, opp_losses = opp_record[0], opp_record[1]
-                
-                played_as_home = ((df_year_games['home_team'] == team) & (df_year_games['away_team'] == opp)).any()
-                played_as_away = ((df_year_games['away_team'] == team) & (df_year_games['home_team'] == opp)).any()
-                
-                if played_as_home:
-                    pass 
-                
                 total_opp_games = opp_wins + opp_losses
                 if total_opp_games > 0:
                     win_pct = opp_wins / total_opp_games
                 else:
                     win_pct = 0.5
-                    
                 opponent_win_percentages.append(win_pct)
-
             if opponent_win_percentages:
                 mean_sos = sum(opponent_win_percentages) / len(opponent_win_percentages)
             else:
-                mean_sos = 0.5
-                
+                mean_sos = 0.5  
             sos_records.append({'year': year, 'team': team, 'sos': round(mean_sos, 4)})
-    
     return pd.DataFrame(sos_records)
 
 def calculate_close_games(df_games):
-    close_net = defaultdict(int)
+    close_wins = defaultdict(int)
+    close_losses = defaultdict(int)
     close_games = []
     for _, row in df_games.iterrows():
         if abs(row['home_points'] - row['away_points']) <= 8:
             if row['home_points'] > row['away_points']:
-                close_net[(int(row['year']), row['home_team'])] += 1
-                if close_net[(int(row['year']), row['away_team'])] > 0: 
-                    close_net[(int(row['year']), row['away_team'])] -= 1 
+                close_wins[(int(row['year']), row['home_team'])] += 1 
+                close_losses[(int(row['year']), row['away_team'])] += 1 
             else:
-                close_net[(int(row['year']), row['away_team'])] += 1
-                if close_net[(int(row['year']), row['home_team'])] > 0: 
-                    close_net[(int(row['year']), row['home_team'])] -= 1 
-    for (year, team), net in close_net.items():
-        close_games.append({'year': year, 'team': team, 'close_games': net})
+                close_wins[(int(row['year']), row['away_team'])] += 1
+                close_losses[(int(row['year']), row['home_team'])] += 1 
+    all_keys = close_wins.keys() | close_losses.keys()          
+    for key in all_keys:
+        wins = close_wins.get(key, 0)
+        losses = close_losses.get(key, 0)
+        net = wins - losses
+        year, team = key
+        close_games.append({'year': year, 'team': team, 'close_games_net': net})
     return pd.DataFrame(close_games)      
-
-
 
 def merge_datasets():
     df_recruiting, df_record, df_performance, df_portal, df_games = load_all_years()
@@ -151,14 +160,23 @@ def merge_datasets():
     df_master = pd.merge(df_master, df_close_games, on=["team", "year"], how="left")
     return df_master
 
+def compute_correlations(df_master):
+    predictors = ["organic_talent_index", "net_rating", "sos", "close_games_net"]
+    return {predictor: df_master["wins"].corr(df_master[predictor]) for predictor in predictors}
+
 if __name__ == "__main__":
     print("Generating master transfer portal era analytics dataset...")
     df_final = merge_datasets()
     
     print("\n--- SAMPLE MASTER OUTPUT DATA ---")
     columns_to_show = ['team', 'year', 'expected_wins', 'organic_talent_index', 'wins',\
-                        'losses', 'net_rating', 'sos', 'close_games']
+                        'losses', 'net_rating', 'sos', 'close_games_net']
     # Filter to look at a small sample slice of verified records
     print(df_final[columns_to_show].dropna().head(15))
+
+    print("\n--- CORRELATION WITH WINS ---")
+    correlations = compute_correlations(df_final)
+    for predictor, corr in correlations.items():
+        print(f"{predictor}: {corr:.3f}")
     
     connection.close()

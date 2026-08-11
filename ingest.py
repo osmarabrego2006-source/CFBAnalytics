@@ -19,9 +19,6 @@ configuration = cfbd.Configuration(
     access_token = raw_key
 )
 
-# global connection variable
-connection = sqlite3.connect("cfb_analytics.db")
-
 # connects to cfbd API
 api_client = cfbd.ApiClient(configuration)
 
@@ -97,13 +94,13 @@ def fetch_games(year, connection):
     try:
         print(f"Fetching games for season {year}...")
         api_response = games_api.get_games(year=year)
-        
+
         saved_count = 0
         for row in api_response:
             if row.home_points is None or row.away_points is None:
                 continue
             is_postseason = 1 if row.season_type == "postseason" else 0
-            
+
             cursor.execute("""
                 INSERT OR REPLACE INTO games (
                     game_id, year, week, home_team, away_team, home_points, away_points, postseason
@@ -119,9 +116,8 @@ def fetch_games(year, connection):
                 is_postseason
             ))
             saved_count += 1
-            
+
         print(f"-> Successfully saved {saved_count} completed games for {year}.")
-        
     except Exception as e:
         print(f"Error fetching games for {year}: {e}")
 
@@ -156,6 +152,53 @@ def fetch_transfer_portal(year, connection):
     finally:
         connection.commit()
 
+def fetch_team_conference(year, connection):
+    cursor = connection.cursor()
+    teams_api = cfbd.TeamsApi(api_client)
+    try:
+        print("Fetching data from {}...".format(year))
+        api_response = teams_api.get_fbs_teams(year=year)
+        for row in api_response:
+            school = row.school
+            conference = row.conference
+            logo = row.logos[0] if row.logos else None
+            # Inserts team data as tuples
+            cursor.execute(
+                "INSERT OR REPLACE INTO team_conference (team, year, conference) VALUES (?, ?, ?)",
+                (school, year, conference)
+            )
+            cursor.execute(
+                "INSERT OR REPLACE INTO logos (team, logo_url) VALUES (?, ?)",
+                (school, logo)
+            )
+        print("Successfully saved {} team record stats to database".format(len(api_response)))
+    except Exception as e:
+        print("Error: {}".format(e))
+    finally:
+        connection.commit()
+
+def run_static_pipeline(start_year, end_year):
+    connection = sqlite3.connect("cfb_analytics.db")
+    cursor = connection.cursor()
+    print("Bulk ingesting from {} to {}.".format(start_year, end_year))
+    for cur_year in range(start_year, end_year+1):
+        cursor.execute("SELECT COUNT(*) FROM team_conference WHERE year = ?", (cur_year,))
+        data_exists = cursor.fetchone()[0] > 0
+        if data_exists:
+            continue
+        print("Processing {} logos".format(cur_year))
+        try:
+            fetch_team_conference(cur_year, connection)
+            connection.commit()
+            print("{} successfully saved".format(cur_year))
+        except Exception as e:
+            print("Error processing {}: {}".format(cur_year, e))
+            connection.rollback()
+            continue
+        time.sleep(1.5)
+    connection.close()
+    print("Static pipeline execution complete.")
+
 def run_backfill_pipeline(start_year, end_year):
     connection = sqlite3.connect("cfb_analytics.db")
     cursor = connection.cursor()
@@ -184,4 +227,4 @@ def run_backfill_pipeline(start_year, end_year):
 
 if __name__ == "__main__":
     run_backfill_pipeline(start_year=2018, end_year=2025)
-    
+    run_static_pipeline(start_year=2018, end_year=2025)

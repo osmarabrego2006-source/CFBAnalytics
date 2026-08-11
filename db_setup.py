@@ -63,6 +63,24 @@ def create_database():
     """)
     print("Transfer portal table verified/created.")
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS team_conference(
+            team TEXT,
+            year INTEGER,
+            conference TEXT,
+            PRIMARY KEY(team, year)
+        );
+    """)
+    print("Team conference table verified/created.")
+
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS logos(
+            team TEXT PRIMARY KEY,
+            logo_url TEXT
+        );
+    """)
+    print("Team logos table verified/created.")
+
     connection.commit()
     connection.close()
     print("Database setup complete and connection successfully closed")
