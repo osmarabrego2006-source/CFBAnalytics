@@ -9,7 +9,7 @@ An end-to-end data pipeline and interactive dashboard: it ingests five seasons o
 **Stack:** Python · pandas · SQLite · Streamlit · Altair · GitHub Actions
 
 <!-- TODO: replace with a real screenshot or GIF of the dashboard (docs/dashboard.png) -->
-![Dashboard screenshot](c:\Users\osmar\Downloads\dash.jpg)
+![Dashboard screenshot](dash.jpg)
 
 ## How it works
 
