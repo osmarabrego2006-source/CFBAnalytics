@@ -1,69 +1,61 @@
-# CFB Data Scraper
+# CFB Analytics
 
-A side project asking a simple question: does recruiting talent actually translate to wins, and how much does the transfer portal change that equation?
+![CI](https://github.com/osmarabrego2006-source/CFBAnalytics/actions/workflows/ci.yml/badge.svg)
+
+**Does recruiting talent actually translate to wins, and how much does the transfer portal change that?**
+
+An end-to-end data pipeline and interactive dashboard: it ingests five seasons of FBS data from the [CFBD API](https://collegefootballdata.com/) into SQLite, derives four candidate predictors of winning, and measures how strongly each one correlates with wins across every team-season since the transfer portal era began (2021–2025).
+
+**Stack:** Python · pandas · SQLite · Streamlit · Altair · GitHub Actions
+
+<!-- TODO: replace with a real screenshot or GIF of the dashboard (docs/dashboard.png) -->
+![Dashboard screenshot](https://media.licdn.com/dms/image/v2/D562DAQFURloC-kDqTQ/profile-treasury-image-shrink_1280_1280/B56Z_y8JTvIsAY-/0/1786487281105?e=1790823600&v=beta&t=__x4QhibwMnNDg2Kk2PLua36mF298mGkq5xCuwbO1as)
 
 ## How it works
 
-It pulls recruiting rankings, team records, game results, transfer portal moves, and team/conference metadata from the CFBD API (https://collegefootballdata.com/) into a local SQLite database, then crunches that into a few derived stats - an organic talent index, strength of schedule, and close-game record - to see which of them actually correlate with winning. A Streamlit dashboard sits on top: pick a conference, pick a team, and see how that team's wins, recruiting talent, and transfer portal activity have moved together over time - plus a league-wide view showing how each of those stats actually correlates with wins across every team-season, which is the closest thing to an answer to this project's opening question right now.
-
-## The files
-
-- `db_setup.py` - sets up the SQLite tables, run once
-- `ingest.py` - pulls from the CFBD API and backfills the database
-- `analysis.py` - the analytics layer: joins everything into one dataset and exposes lookups the dashboard uses for navigation
-- `dashboard.py` - the Streamlit app: conference → team → team stats, with charts and a summary
-- `.streamlit/config.toml` - the app's color theme and font
-- `test_env.py` - check that API key works before you run anything real
-
-## Getting it running
-
-You'll need a free API key from CFBD. Install the dependencies:
 ```
-pip install cfbd python-dotenv pandas streamlit altair requests Pillow
+CFBD API ──> ingest.py ──> SQLite (7 tables) ──> analysis.py ──> dashboard.py
+             (skips loaded   recruiting, records,   derived stats +     Streamlit:
+              years, rate-   games, portal,         correlations        conference → team → trends,
+              limited)       conferences, logos                         plus league-wide view
 ```
 
-Drop your key in a `.env` file:
+| File | Role |
+|---|---|
+| `db_setup.py` | Creates the SQLite schema (run once) |
+| `ingest.py` | Pulls from the CFBD API and backfills the database; skips years already loaded |
+| `analysis.py` | Joins everything into one team-season dataset and computes the derived stats |
+| `dashboard.py` | Streamlit app with team drill-down and league-wide correlation view |
+| `tests/` | Unit tests for the derived-stat functions, run in CI on every push |
+
+## The derived stats
+
+The working hypothesis is that a team's season comes down to four things:
+
+- **Organic Talent Index**: not just this year's recruiting class, but a weighted blend of the last four, since freshmen rarely start and juniors are usually the core. Current weights: FR 20% / SO 30% / JR 35% / SR 15%.
+- **Transfer Portal Net Rating**: talent gained minus talent lost through the portal, using player rating (or star rating as a fallback).
+- **Strength of Schedule**: mean win percentage of opponents faced.
+- **Close-Game Net**: wins minus losses in games decided by 8 points or fewer, a rough proxy for luck vs. being the better team.
+
+Recruiting data goes back to 2018 so the 2021 season has four full classes behind it. Everything else starts in 2021, when the portal became a real factor.
+
+## Limitations and next steps
+
+- **Class weights are hand-picked.** Next step: fit them from the data instead of assuming them.
+- **Correlation, not causation.** Talent and schedule are correlated with each other, so a multivariate regression would separate their effects better than four one-variable correlations.
+- **Close-game net partly measures wins with wins,** so its correlation is inflated by construction.
+- **Non-FBS opponents default to a .500 record** in strength of schedule, which slightly flatters teams with FCS games on their schedule.
+
+## Running it locally
+
+```bash
+pip install -r requirements.txt
+echo "CFBD_API_KEY=your_key_here" > .env   # free key from collegefootballdata.com
+python test_env.py        # verify the key works
+python db_setup.py        # create the schema
+python ingest.py          # backfill 2018–2025
+python analysis.py        # print the merged dataset and correlations
+streamlit run dashboard.py
 ```
-CFBD_API_KEY=your_key_here
-```
 
-Then check the connection works:
-```
-python test_env.py
-```
-
-## Using it
-
-```
-python db_setup.py      # create the schema
-python ingest.py        # backfill historical data + team/conference/logo metadata
-python analysis.py      # sanity-check the merged dataset and print correlation with wins
-streamlit run dashboard.py   # launch the dashboard
-```
-
-`ingest.py`'s year range is set at the bottom of the file if you want a different window than the current default.
-
-## What's in the database
-
-- **recruiting** - team, year, recruiting points (2018–2025)
-- **record** - team, year, wins, losses
-- **performance** - expected wins vs. actual wins, per CFBD's model
-- **games** - every completed game, score included
-- **transfer_portal** - players in/out and a net talent rating per team, per year
-- **team_conference** - team, year, conference (year-scoped, since realignment happens)
-- **logos** - team → logo URL (not year-scoped, since a team's logo doesn't change with realignment)
-
-Recruiting data goes back to 2018 because I need multiple recruiting classes to estimate a team's talent in any given year (more on that below). Everything else only goes back to 2021, since that's roughly when the transfer portal became a real factor.
-
-## The actual thinking behind it
-
-The rough hypothesis is that a team's performance in a given year comes down to:
-
-- **Strength of schedule** - average win % of who they played
-- **"Organic" talent** - not just this year's recruiting class, but a weighted blend of the last four classes, since freshmen rarely start, juniors and redshirt sophomores are usually your core, and your best players often leave early. Right now that's a flat weighting (FR 20% / SO 30% / JR 35% / SR 15%), which is a simplification I want to revisit.
-- **Transfer portal net rating** - how much talent a team gained or lost through the portal, since that's now a bigger lever than recruiting for some programs
-- **Close games** - net one-score record (wins minus losses in games decided by 8 points or fewer), as a rough proxy for how much of a team's record is luck/clutch play rather than being the better team.
-
-## Where it stands
-
-The pipeline and analysis layer work end to end, including team/conference/logo metadata for navigation. The dashboard has four screens: pick a conference, pick a team, see that team's Wins, Organic Talent Index, and Transfer Portal Net Rating charted over time with a short auto-generated summary - or skip straight to a league-wide view showing correlation-with-wins for all four hypothesis variables (organic talent, transfer portal, strength of schedule, close games) across every team-season, plus scatter plots for the two biggest ones.
+Run the tests with `pytest`.
