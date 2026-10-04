@@ -1,3 +1,0 @@
-# Pin the lint rule set so CI doesn't break when ruff changes its defaults.
-[lint]
-select = ["E4", "E7", "E9", "F"]

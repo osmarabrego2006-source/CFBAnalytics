@@ -1,7 +1,0 @@
-cfbd
-python-dotenv
-pandas
-streamlit
-altair
-requests
-Pillow
