@@ -1,7 +1,11 @@
 import sqlite3
+from pathlib import Path
+
+# Resolved from this file so scripts work no matter which folder they run from.
+DB_PATH = Path(__file__).resolve().parent / "cfb_analytics.db"
 
 def create_database():
-    connection = sqlite3.connect("cfb_analytics.db")
+    connection = sqlite3.connect(DB_PATH)
     cursor = connection.cursor()
 
     print("--- Initializing Database ---")

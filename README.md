@@ -19,7 +19,7 @@ It pulls recruiting rankings, team records, game results, transfer portal moves,
 
 You'll need a free API key from CFBD. Install the dependencies:
 ```
-pip install cfbd python-dotenv pandas streamlit altair requests Pillow
+pip install -r requirements.txt
 ```
 
 Drop your key in a `.env` file:
@@ -54,6 +54,8 @@ streamlit run dashboard.py   # launch the dashboard
 - **logos** - team → logo URL (not year-scoped, since a team's logo doesn't change with realignment)
 
 Recruiting data goes back to 2018 because I need multiple recruiting classes to estimate a team's talent in any given year (more on that below). Everything else only goes back to 2021, since that's roughly when the transfer portal became a real factor.
+
+The analysis only covers FBS teams. CFBD's records endpoint returns every division, so `analysis.py` keeps just the team-seasons listed in `team_conference`, which is how a team that moved up to FBS only counts from its first FBS season.
 
 ## The actual thinking behind it
 

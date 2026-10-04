@@ -105,12 +105,14 @@ def render_team_summary(team, chart_df):
     stat_cols = ["Wins", "Organic Talent Index", "Transfer Portal Net Rating"]
     cols = st.columns(3)
     for col, stat in zip(cols, stat_cols):
-        series = chart_df[stat]
+        # Skip seasons with no data (e.g. no portal row) so the delta isn't NaN.
+        present = chart_df[chart_df[stat].notna()]
+        series = present[stat]
         with col:
             st.metric(
                 stat,
                 f"{series.iloc[-1]:.1f}",
-                delta=f"{series.iloc[-1] - series.iloc[0]:+.1f} since {int(chart_df['Year'].iloc[0])}",
+                delta=f"{series.iloc[-1] - series.iloc[0]:+.1f} since {int(present['Year'].iloc[0])}",
             )
             st.caption(f"Range: {series.min():.1f} – {series.max():.1f}")
     first_year, last_year = int(chart_df["Year"].min()), int(chart_df["Year"].max())
@@ -185,7 +187,7 @@ def render_team_chart(chart_df):
     combined = apply_chart_theme(
         alt.vconcat(wins_chart, talent_chart, portal_chart).resolve_scale(x="shared")
     )
-    st.altair_chart(combined, use_container_width=True)
+    st.altair_chart(combined, width="stretch")
 
 
 def render_league_view(df):
@@ -219,7 +221,7 @@ def render_league_view(df):
     portal_scatter = scatter("net_rating", "#199e70")
     st.altair_chart(
         apply_chart_theme(alt.hconcat(talent_scatter, portal_scatter)),
-        use_container_width=True,
+        width="stretch",
     )
 
 st.session_state.setdefault("view", "home")
@@ -242,8 +244,8 @@ if st.session_state.view == "home":
                 if logo_url:
                     composited = get_logo_on_white(logo_url)
                     if composited:
-                        st.image(composited, use_container_width=True)
-                if st.button(conf, use_container_width=True):
+                        st.image(composited, width="stretch")
+                if st.button(conf, width="stretch"):
                     st.session_state.selected_conference = conf
                     st.session_state.view = "conference"
                     st.rerun()
@@ -264,8 +266,8 @@ elif st.session_state.view == "conference":
                 if logo:
                     composited = get_logo_on_white(logo)
                     if composited:
-                        st.image(composited, use_container_width=True)
-                if st.button(team, use_container_width=True):
+                        st.image(composited, width="stretch")
+                if st.button(team, width="stretch"):
                     st.session_state.selected_team = team
                     st.session_state.view = "team"
                     st.rerun()

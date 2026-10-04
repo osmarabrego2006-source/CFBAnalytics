@@ -1,8 +1,9 @@
 import sqlite3
 import pandas as pd
 from collections import defaultdict
+from db_setup import DB_PATH
 
-connection = sqlite3.connect("cfb_analytics.db", check_same_thread=False )
+connection = sqlite3.connect(DB_PATH, check_same_thread=False )
 
 def get_recruiting(target_year):
     df_recruiting = pd.read_sql_query("SELECT * FROM recruiting WHERE year = ?", \
@@ -158,7 +159,16 @@ def merge_datasets():
     df_master = pd.merge(df_master, df_portal, on=["team", "year"], how="left")
     df_master = pd.merge(df_master, df_sos, on=["team", "year"], how="left")
     df_master = pd.merge(df_master, df_close_games, on=["team", "year"], how="left")
-    return df_master
+    return filter_fbs(df_master, get_fbs_team_seasons())
+
+def get_fbs_team_seasons():
+    return pd.read_sql_query("SELECT team, year FROM team_conference", connection)
+
+def filter_fbs(df_master, df_fbs):
+    # The records endpoint covers every division; keep only FBS team-seasons so
+    # FCS teams (no recruiting data, partial schedules) don't skew the stats.
+    df_fbs = df_fbs.astype({"year": int})
+    return pd.merge(df_master, df_fbs, on=["team", "year"], how="inner")
 
 def compute_correlations(df_master):
     predictors = ["organic_talent_index", "net_rating", "sos", "close_games_net"]
